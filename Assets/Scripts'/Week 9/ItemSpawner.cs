@@ -1,65 +1,83 @@
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using System.Linq;
-using System.Runtime.CompilerServices;
 
 public class ItemSpawner : MonoBehaviour
 {
     public Item itemToSpawn;
-    public float speed = 0.01f;
-    public List<Item> items = new List<Item>();
+    public RunnerPlayer player;
     public Transform parent;
-    public float maxHorizontal;
-    public float minHorizontal;
-    public float maxVertical;
-    public float minVertical;
+  private List<Item> items = new List<Item>();
 
-    private void Start()
-    {
-        InvokeRepeating(nameof(BeginSpawn), 1, 0.3f);
-    }
+    public float speed = 12f;
+    public float acceleration = 0.2f;
+    public float maxSpeed = 30f;
+    public float spawnGap = 10f;
+    public float spawnZ = 60f;
+    public float despawnZ = -5f;
 
-    private void BeginSpawn()
-    {
-        var spawnedItem = Instantiate(itemToSpawn, parent);
-        spawnedItem.itemPosition = GetRandomLocation();
-        items.Add(spawnedItem);
-    }
+    public float obstacleHeight = 1f;
+    public float hitDepth = 0.5f;
+    public float hitWidth = 1f;
 
-    private Vector3 GetRandomLocation()
-    {
-        var xRand = Random.Range(minHorizontal, maxHorizontal);
-        var yRand = Random.Range(minVertical, maxVertical);
-        return new Vector3(xRand, yRand, 0);
-    }
+    private float distanceSinceSpawn;
 
     private void Update()
     {
-        foreach (var item in items)
+        var dt = Time.deltaTime;
+        speed = Mathf.Min(speed + acceleration * dt, maxSpeed);
+
+        var step = speed * dt;
+        distanceSinceSpawn = distanceSinceSpawn + step;
+        if (distanceSinceSpawn >= spawnGap)
         {
-            ItemMover(item);
+            distanceSinceSpawn = distanceSinceSpawn - spawnGap;
+            Spawn();
         }
 
+        for (int i = items.Count - 1; i >= 0; i--)
+        {
+            var item = items[i];
+            if (item == null)
+            {
+                items.RemoveAt(i);
+                continue;
+            }
 
-        transform.position = GetRandomLocation();
-        List<Transform> children = new List<Transform>();
-        foreach(Transform child in transform)
-        {
-            children.Add(child);
-        }       
-        children.OrderBy(x => x.position.z);
-        
-        for(int i = 0 ; i < children.Count; i++)
-        {
-            children[i].SetSiblingIndex(i);
+            item.itemPosition = item.itemPosition - Vector3.forward * step;
+            CheckHit(item);
+
+            if (item.itemPosition.z < despawnZ)
+            {
+                items.RemoveAt(i);
+                Destroy(item.gameObject);
+            }
         }
     }
 
-    private void ItemMover(Item item)
+    private void Spawn()
     {
-        item.itemPosition.z += speed;
+        var lane = Random.Range(0, 3);
+        var spawned = Instantiate(itemToSpawn, parent);
+        spawned.itemPosition = new Vector3(player.LaneToX(lane), player.groundY, spawnZ);
+        items.Add(spawned);
     }
 
+    private void CheckHit(Item item)
+    {
+        if (item.hasHit)
+        {
+            return;
+        }
 
+        var delta = player.playerPosition - item.itemPosition;
+        var closeInDepth = Mathf.Abs(delta.z) <= hitDepth;
+        var sameLane = Mathf.Abs(delta.x) <= hitWidth;
+        var belowTop = delta.y < obstacleHeight;
+
+        if (closeInDepth && sameLane && belowTop)
+        {
+            item.hasHit = true;
+            player.TakeDamage();
+        }
+    }
 }
